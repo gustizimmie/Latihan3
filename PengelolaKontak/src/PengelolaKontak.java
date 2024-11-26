@@ -91,9 +91,16 @@ public class PengelolaKontak extends javax.swing.JFrame {
             DefaultTableModel model = (DefaultTableModel) tabelKontak.getModel();
             model.setRowCount(0); // Kosongkan tabel sebelum menampilkan data yang difilter
 
-            String sql = "SELECT * FROM pengelola_kontak WHERE kategori = ?";
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, category); // Set kategori untuk filter
+            String sql;
+
+            try (PreparedStatement pstmt = conn.prepareStatement(
+                category.equals("-- Pilih --") 
+                ? "SELECT * FROM pengelola_kontak" // Jika kategori adalah "-- Pilih --", ambil semua data
+                : "SELECT * FROM pengelola_kontak WHERE kategori = ?" // Jika kategori spesifik, filter berdasarkan kategori
+            )) {
+                if (!category.equals("-- Pilih --")) {
+                    pstmt.setString(1, category); // Set kategori untuk filter
+                }
 
                 try (ResultSet rs = pstmt.executeQuery()) {
                     while (rs.next()) {
@@ -108,6 +115,7 @@ public class PengelolaKontak extends javax.swing.JFrame {
                 JOptionPane.showMessageDialog(this, "Gagal memuat data: " + e.getMessage());
             }
         }
+
 
         private void simpanData(){
             String nama = txtNama.getText().trim();
@@ -217,6 +225,105 @@ public class PengelolaKontak extends javax.swing.JFrame {
             }
 
         }
+        private void batal(){
+            txtNama.setText(""); 
+            txtTelepon.setText("");
+            comboKategori.setSelectedIndex(0);
+            txtCari.setText("");
+        }
+        private void impor() {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Pilih File CSV");
+            fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV Files", "csv"));
+            int result = fileChooser.showOpenDialog(this);
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
+
+                try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                    DefaultTableModel model = (DefaultTableModel) tabelKontak.getModel();
+                    model.setRowCount(0); // Kosongkan tabel sebelum mengimpor data
+
+                    String line = reader.readLine(); // Lewati baris header
+                    String sql = "INSERT INTO pengelola_kontak (nama, telepon, kategori) VALUES (?, ?, ?)";
+                    conn.setAutoCommit(false); // Gunakan transaksi untuk impor data
+
+                    try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                        while ((line = reader.readLine()) != null) {
+                            String[] data = line.split(","); // Pisahkan berdasarkan koma
+                            if (data.length == model.getColumnCount()) {
+                                // Tambahkan ke tabel
+                                model.addRow(data);
+
+                                // Tambahkan ke database
+                                pstmt.setString(1, data[0]); // Nama
+                                pstmt.setString(2, data[1]); // Telepon
+                                pstmt.setString(3, data[2]); // Kategori
+                                pstmt.addBatch(); // Tambahkan ke batch
+                            }
+                        }
+
+                        pstmt.executeBatch(); // Eksekusi semua pernyataan batch
+                        conn.commit(); // Commit transaksi
+                        JOptionPane.showMessageDialog(this, "Data berhasil diimpor dari file CSV dan disimpan ke database.");
+                    } catch (SQLException e) {
+                        conn.rollback(); // Batalkan transaksi jika ada kesalahan
+                        JOptionPane.showMessageDialog(this, "Gagal menyimpan data ke database: " + e.getMessage());
+                    } finally {
+                        conn.setAutoCommit(true); // Kembalikan ke mode auto-commit
+                    }
+                } catch (IOException e) {
+                    JOptionPane.showMessageDialog(this, "Terjadi kesalahan saat mengimpor data: " + e.getMessage());
+                } catch (SQLException e) {
+                    JOptionPane.showMessageDialog(this, "Kesalahan koneksi database: " + e.getMessage());
+                }
+            }
+        }
+
+
+        private void ekspor() {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Simpan File CSV");
+            fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV Files", "csv"));
+            int result = fileChooser.showSaveDialog(this);
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
+                if (!file.getName().endsWith(".csv")) {
+                    file = new File(file.getAbsolutePath() + ".csv");
+                }
+
+                try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+                    DefaultTableModel model = (DefaultTableModel) tabelKontak.getModel();
+
+                    // Tulis header (kolom)
+                    for (int i = 0; i < model.getColumnCount(); i++) {
+                        writer.write(model.getColumnName(i));
+                        if (i < model.getColumnCount() - 1) {
+                            writer.write(",");
+                        }
+                    }
+                    writer.newLine();
+
+                    // Tulis data baris per baris
+                    for (int i = 0; i < model.getRowCount(); i++) {
+                        for (int j = 0; j < model.getColumnCount(); j++) {
+                            writer.write(model.getValueAt(i, j).toString());
+                            if (j < model.getColumnCount() - 1) {
+                                writer.write(",");
+                            }
+                        }
+                        writer.newLine();
+                    }
+
+                    JOptionPane.showMessageDialog(this, "Data berhasil diekspor ke file CSV.");
+                } catch (IOException e) {
+                    JOptionPane.showMessageDialog(this, "Terjadi kesalahan saat mengekspor data: " + e.getMessage());
+                }
+            }
+        }
+        
+
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
@@ -267,7 +374,7 @@ public class PengelolaKontak extends javax.swing.JFrame {
             }
         });
 
-        comboKategori.setModel(new javax.swing.DefaultComboBoxModel<>(new String[] { "Keluarga", "Teman", "Kerja" }));
+        comboKategori.setModel(new javax.swing.DefaultComboBoxModel<>(new String[] { "-- Pilih --", "Keluarga", "Teman", "Kerja" }));
         comboKategori.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 comboKategoriActionPerformed(evt);
@@ -296,10 +403,25 @@ public class PengelolaKontak extends javax.swing.JFrame {
         });
 
         btnBatal.setText("Batal");
+        btnBatal.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnBatalActionPerformed(evt);
+            }
+        });
 
         btnImpor.setText("Impor");
+        btnImpor.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnImporActionPerformed(evt);
+            }
+        });
 
         btnEkspor.setText("Ekspor");
+        btnEkspor.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnEksporActionPerformed(evt);
+            }
+        });
 
         tabelKontak.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
@@ -428,17 +550,31 @@ public class PengelolaKontak extends javax.swing.JFrame {
 
     private void txtTeleponKeyTyped(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtTeleponKeyTyped
              char c = evt.getKeyChar();
-
             // Hanya izinkan angka dan titik desimal
             if (!Character.isDigit(c) && c != '.') {
                 evt.consume(); // Abaikan input yang bukan angka atau titik desimal
             }
-
+            // Mencegah lebih dari satu titik desimal
+            if (c == '.' && txtTelepon.getText().contains(".")) {
+                evt.consume(); // Abaikan input jika titik desimal sudah ada
+            }
             // Batasi panjang input menjadi maksimal 13 karakter
             if (txtTelepon.getText().length() >= 13) {
                 evt.consume(); // Abaikan input jika panjang sudah mencapai 13
             }        // TODO add your handling code here:
     }//GEN-LAST:event_txtTeleponKeyTyped
+
+    private void btnBatalActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnBatalActionPerformed
+            batal();        // TODO add your handling code here:
+    }//GEN-LAST:event_btnBatalActionPerformed
+
+    private void btnImporActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnImporActionPerformed
+            impor();        // TODO add your handling code here:
+    }//GEN-LAST:event_btnImporActionPerformed
+
+    private void btnEksporActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnEksporActionPerformed
+            ekspor();        // TODO add your handling code here:
+    }//GEN-LAST:event_btnEksporActionPerformed
 
     /**
      * @param args the command line arguments
